@@ -1,0 +1,18 @@
+Tms:
+  CacheMonitor:
+    fullPageCacheLogger:
+      skip: true
+      miss: true
+
+      # The benefit of using Flowpack.FullPageCache is that there are zero SQL queries involved for cache hits.
+      # By logging also cache hits you may experience performance issues
+      hit: false
+
+      # Flownative.FullPageCache uses a cookies & query string whitelist approach to decide if a response is fully cachable.
+      # Over time you most likely need to adjust the FullPageCache configuration as requests with unknown cookies and/or
+      # query strings hit your site. These logs help you to keep track of new cookie and/or query strings.
+      logDisallowedCookieParams: true
+      logDisallowedQueryParams: true
+
+    # Disable Flownative.FullPageCache logging
+    #fullPageCacheLogger: false
