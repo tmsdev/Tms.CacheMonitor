@@ -33,19 +33,11 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
      */
     public function infoCommand()
     {
-        $activities = $this->fullpagecacheActivityRepository->findAll();
-
-        $cacheInfoSummary = [
-            'HIT' => 0,
-            'MISS' => 0,
-            'SKIP' => 0
-        ];
         $disallowedCookieParams = [];
         $disallowedQueryParams = [];
 
         /** @var $activity FullpagecacheActivity */
-        foreach ($activities as $activity) {
-            $cacheInfoSummary[$activity->getCacheInfo()]++;
+        foreach ($this->fullpagecacheActivityRepository->findAll() as $activity) {
             foreach ($activity->getDisallowedCookieParams() as $item) {
                 if (isset($disallowedCookieParams[$item]))
                     $disallowedCookieParams[$item]++;
@@ -59,14 +51,19 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
                     $disallowedQueryParams[$item] = 1;
             }
         }
-        $disallowedCookieParams = array_map(function ($k, $v) { return [$k, $v]; }, array_keys($disallowedCookieParams), $disallowedCookieParams);
-        $disallowedQueryParams = array_map(function ($k, $v) { return [$k, $v]; }, array_keys($disallowedQueryParams), $disallowedQueryParams);
-        rsort($disallowedCookieParams);
-        rsort($disallowedQueryParams);
 
+        // Map and sort cookie params
+        $disallowedCookieParams = array_map(function ($k, $v) { return [$k, $v]; }, array_keys($disallowedCookieParams), $disallowedCookieParams);
+        usort($disallowedCookieParams, function ($i1, $i2) { return $i2[1] <=> $i1[1]; });
+
+        // Map and sort query params
+        $disallowedQueryParams = array_map(function ($k, $v) { return [$k, $v]; }, array_keys($disallowedQueryParams), $disallowedQueryParams);
+        usort($disallowedQueryParams, function ($i1, $i2) { return $i2[1] <=> $i1[1]; });
+
+        // Output results
         $this->outputLine();
-        foreach ($cacheInfoSummary as $cacheInfo => $count) {
-            $this->outputLine(sprintf('<info>%s: %s</info>', $cacheInfo, $count) . (!$this->fullPageCacheLogger[strtolower($cacheInfo)] ? ' (currently disabled)' : ''));
+        foreach ($this->fullpagecacheActivityRepository->groupByCacheInfo() as $entry) {
+            $this->outputLine(sprintf('<info>%s: %s</info>', $entry['cacheInfo'], $entry['count']) . (!$this->fullPageCacheLogger[strtolower($entry['cacheInfo'])] ? ' (currently disabled)' : ''));
         }
         $this->outputLine();
         $this->output->outputTable($disallowedCookieParams, ['Disallowed cookie names', 'Count']);
@@ -76,35 +73,60 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
     }
 
     /**
-     * Show list of requested URIs filtered by included cookie or query parameters
+     * Search for cookie or query parameters and return related URIs
      *
-     * @param string $filter
+     * @param string $searchTerm
      * @return void
      */
-    public function urisCommand($filter)
+    public function searchCommand($searchTerm)
     {
-        $activities = $this->fullpagecacheActivityRepository->findAll();
         $urisCookieParams = [];
         $urisQueryParams = [];
 
         /** @var $activity FullpagecacheActivity */
-        foreach ($activities as $activity) {
-            if (in_array($filter, $activity->getDisallowedCookieParams()))
+        foreach ($this->fullpagecacheActivityRepository->findAll() as $activity) {
+            if (in_array($searchTerm, $activity->getDisallowedCookieParams()))
                 $urisCookieParams[] = $activity->getUri();
-            if (in_array($filter, $activity->getDisallowedQueryParams()))
+            if (in_array($searchTerm, $activity->getDisallowedQueryParams()))
                 $urisQueryParams[] = $activity->getUri();
         }
 
         $this->outputLine();
-        $this->outputLine(sprintf('<comment>Found %s requested URIs for "%s" in disallowed cookie params...</comment>', count($urisCookieParams), $filter));
+        $this->outputLine(sprintf('<comment>Found %s entries for "%s" in disallowed cookie params...</comment>', count($urisCookieParams), $searchTerm));
         foreach ($urisCookieParams as $uri)
             $this->outputLine($uri);
 
         $this->outputLine();
-        $this->outputLine(sprintf('<comment>Found %s requested URIs for "%s" in disallowed query params...</comment>', count($urisQueryParams), $filter));
+        $this->outputLine(sprintf('<comment>Found %s entries for "%s" in disallowed query params...</comment>', count($urisQueryParams), $searchTerm));
         foreach ($urisQueryParams as $uri)
             $this->outputLine($uri);
         $this->outputLine();
+    }
+
+    /**
+     * Breakdown of cache info and uris
+     *
+     * @return void
+     */
+    public function urisCommand()
+    {
+        $cacheInfos = $this->fullpagecacheActivityRepository->groupByCacheInfo();
+        $cacheInfos = array_map(function ($i) { return sprintf('%s (%s)', $i['cacheInfo'], $i['count']); }, $cacheInfos);
+
+        $cacheInfo = $this->output->select('<comment>Filter URIs by cache info:</comment>', $cacheInfos);
+        $uris = $this->fullpagecacheActivityRepository->groupByUri(explode(' ', $cacheInfo)[0]);
+
+        $uris = array_map(function ($i) {
+            $maximumChars = 120;
+            $croppedUri = substr($i['uri'], 0, $maximumChars);
+            if (strlen($i['uri']) > $maximumChars)
+                $croppedUri .= '[...]';
+            return [
+                'uri' => sprintf('<href=%s>%s</>', $i['uri'], $croppedUri),
+                'count' => $i['count']
+            ];
+        }, $uris);
+        $this->output->outputTable($uris, ['URI', 'Count']);
     }
 
     /**
