@@ -64,7 +64,11 @@ class LoggingAspect
             /** @var  $response ResponseInterface */
             $response = $joinPoint->getResult();
 
-            if ($response instanceof ResponseInterface && $response->hasHeader('X-FullPageCache-Info')) {
+            if (
+                in_array(strtoupper($request->getMethod()), ['GET', 'HEAD']) &&
+                $response instanceof ResponseInterface &&
+                $response->hasHeader('X-FullPageCache-Info'))
+            {
                 $fullPageCacheInfo = $response->getHeader('X-FullPageCache-Info')[0];
                 $requestedUri = $request->getUri();
 
