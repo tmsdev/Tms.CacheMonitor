@@ -6,7 +6,7 @@ A simple database-driven solution for monitoring and analyzing content caches in
 
 - [x] [Flowpack.FullPageCache](https://github.com/Flowpack/Flowpack.FullPageCache) support: Keep track of cache **HIT**s, **MISS**es & **SKIP**s (also logs disallowed query strings and cookie names)
 - [x] Flow commands to analyse log data
-- [ ] Keep track of content cache flushes
+- [x] Keep track of content cache flushes
 - [ ] Keep track of content caches with TTLs
 - [ ] Backend module
 

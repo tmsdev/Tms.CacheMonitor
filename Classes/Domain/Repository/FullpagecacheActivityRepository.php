@@ -6,8 +6,8 @@ namespace Tms\CacheMonitor\Domain\Repository;
  */
 
 use Neos\Flow\Annotations as Flow;
-use Neos\Flow\Persistence\QueryInterface;
 use Neos\Flow\Persistence\Doctrine\Repository;
+use Neos\Flow\Persistence\QueryInterface;
 use Tms\CacheMonitor\Domain\Model\FullpagecacheActivity;
 
 /**

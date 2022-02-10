@@ -16,3 +16,11 @@ Tms:
 
     # Disable Flownative.FullPageCache logging
     #fullPageCacheLogger: false
+
+    logContentCacheFlush:
+      cacheIdentifiers:
+        - # Optional "name" key is used as table header in the CLI command output
+          identifier: 'Neos_Fusion_Content'
+          name: 'Content Cache'
+        # TODO: Flowpack_FullPageCache_Entries cache flush can't be logged right now, the @Flow\Before advice in Flowpack.FullPageCache is called too early
+        #- 'Flowpack_FullPageCache_Entries'

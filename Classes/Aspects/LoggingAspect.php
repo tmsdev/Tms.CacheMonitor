@@ -3,10 +3,14 @@ namespace Tms\CacheMonitor\Aspects;
 
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\AOP\JoinPointInterface;
+use Neos\Flow\Cache\CacheManager;
 use Neos\Flow\Persistence\PersistenceManagerInterface;
+use Neos\Utility\ObjectAccess;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
+use Tms\CacheMonitor\Domain\Model\ContentCacheFlushEvent;
 use Tms\CacheMonitor\Domain\Model\FullpagecacheActivity;
+use Tms\CacheMonitor\Domain\Repository\ContentCacheFlushEventRepository;
 use Tms\CacheMonitor\Domain\Repository\FullpagecacheActivityRepository;
 
 /**
@@ -16,9 +20,15 @@ class LoggingAspect
 {
     /**
      * @var array
+     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="logContentCacheFlush")
+     */
+    protected $contentCacheFlushSettings;
+
+    /**
+     * @var array
      * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="fullPageCacheLogger")
      */
-    protected $fullPageCacheLogger;
+    protected $fullPageCacheSettings;
 
     /**
      * @var array
@@ -51,13 +61,26 @@ class LoggingAspect
     protected $fullpagecacheActivityRepository;
 
     /**
+     * @Flow\Inject
+     * @var ContentCacheFlushEventRepository
+     */
+    protected $contentCacheFlushEventRepository;
+
+    /**
+     * @Flow\Inject
+     * @var CacheManager
+     */
+    protected $cacheManager;
+
+    /**
      * Log Flowpack.FullPageCache activities
      *
      * @Flow\After("method(Flowpack\FullPageCache\Middleware\RequestCacheMiddleware->process())")
+     * @param JoinPointInterface $joinPoint
      */
     public function fullPageCacheLogger(JoinPointInterface $joinPoint): void
     {
-        if ($this->fullPageCacheLogger) {
+        if ($this->fullPageCacheSettings) {
             /** @var  $request RequestInterface */
             $request = $joinPoint->getMethodArgument('request');
 
@@ -76,9 +99,9 @@ class LoggingAspect
                 $disallowedCookieParams = [];
                 $disallowedQueryParams = [];
 
-                if ($this->fullPageCacheLogger['skip'] && $this->str_starts_with($fullPageCacheInfo, 'SKIP')) {
+                if ($this->fullPageCacheSettings['skip'] && $this->str_starts_with($fullPageCacheInfo, 'SKIP')) {
                     $activity->setCacheInfo('SKIP');
-                    if ($this->fullPageCacheLogger['logDisallowedCookieParams'] === true) {
+                    if ($this->fullPageCacheSettings['logDisallowedCookieParams'] === true) {
                         $requestCookieParams = $request->getCookieParams();
                         foreach ($requestCookieParams as $key => $value) {
                             if (!in_array($key, $this->ignoredCookieParams)) {
@@ -86,7 +109,7 @@ class LoggingAspect
                             }
                         }
                     }
-                    if ($this->fullPageCacheLogger['logDisallowedQueryParams'] === true) {
+                    if ($this->fullPageCacheSettings['logDisallowedQueryParams'] === true) {
                         $requestQueryParams = $request->getQueryParams();
                         $disallowedQueryParams = [];
                         foreach ($requestQueryParams as $key => $value) {
@@ -99,10 +122,10 @@ class LoggingAspect
                         }
                     }
                 }
-                if ($this->fullPageCacheLogger['miss'] && $this->str_starts_with($fullPageCacheInfo, 'MISS')) {
+                if ($this->fullPageCacheSettings['miss'] && $this->str_starts_with($fullPageCacheInfo, 'MISS')) {
                     $activity->setCacheInfo('MISS');
                 }
-                if ($this->fullPageCacheLogger['hit'] && $this->str_starts_with($fullPageCacheInfo, 'HIT')) {
+                if ($this->fullPageCacheSettings['hit'] && $this->str_starts_with($fullPageCacheInfo, 'HIT')) {
                     $activity->setCacheInfo('HIT');
                 }
 
@@ -119,6 +142,39 @@ class LoggingAspect
     }
 
     /**
+     * @Flow\Before("method(Neos\Neos\Fusion\Cache\ContentCacheFlusher->shutdownObject())")
+     * @param JoinPointInterface $joinPoint
+     *
+     * @throws \Neos\Utility\Exception\PropertyNotAccessibleException
+     */
+    public function logCacheFlush(JoinPointInterface $joinPoint)
+    {
+        $object = $joinPoint->getProxy();
+        $tagsToFlush = ObjectAccess::getProperty($object, 'tagsToFlush', true);
+        $workspacesToFlush = ObjectAccess::getProperty($object, 'workspacesToFlush', true);
+
+        $flushEvent = new ContentCacheFlushEvent();
+        $flushEvent->setTagsToFlush($tagsToFlush);
+        $flushEvent->setWorkspacesToFlush($workspacesToFlush);
+
+        // Get number of affected entries (by cache identifier) at the time of flushing the cache
+        $affectedEntries = [];
+        if ($this->contentCacheFlushSettings['cacheIdentifiers']) {
+            foreach($tagsToFlush as $tag => $_) {
+                foreach($this->contentCacheFlushSettings['cacheIdentifiers'] as $cacheIdentifier) {
+                    $cache = $this->cacheManager->getCache($cacheIdentifier['identifier'] ?? $cacheIdentifier);
+                    $entries = $cache->getByTag($this->sanitizeTag($tag));
+                    $affectedEntries[$tag][$cacheIdentifier['identifier'] ?? $cacheIdentifier] = count($entries);
+                }
+            }
+        }
+        $flushEvent->setAffectedEntries($affectedEntries);
+
+        $this->contentCacheFlushEventRepository->add($flushEvent);
+        $this->persistenceManager->persistAll();
+    }
+
+    /**
      * TODO: Can be replaced by adding a dependency on PHP8+
      *
      * @param $haystack
@@ -127,5 +183,16 @@ class LoggingAspect
      */
     private function str_starts_with($haystack, $needle) {
         return strpos($haystack , $needle) === 0;
+    }
+
+    /**
+     * Sanitizes the given tag for use with the cache framework
+     *
+     * @param string $tag A tag which possibly contains non-allowed characters, for example "NodeType_Acme.Com:Page"
+     * @return string A cleaned up tag, for example "NodeType_Acme_Com-Page"
+     */
+    protected function sanitizeTag($tag)
+    {
+        return strtr($tag, '.:', '_-');
     }
 }
