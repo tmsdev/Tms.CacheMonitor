@@ -10,11 +10,13 @@ A simple database-driven solution for monitoring and analyzing content caches in
 - [ ] Keep track of content caches with TTLs
 - [ ] Backend module
 
-## Install
+## Installation
+
+⚠️⚠️⚠️ **WARNING: This is currently experimental code, do not rely on it and use it at your own risk. If you find this package useful, I will gladly accept any kind of contribution.**
 
 ```bash
-composer require tms/cachemonitor
-```
+composer require tms/cachemonitor dev-main
+````
 
 ## Usage
 
