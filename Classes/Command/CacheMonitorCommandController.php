@@ -50,9 +50,10 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
     /**
      * Summarize cache monitor logs
      *
+     * @param boolean $verbose Show all disallowed cookies and query strings. (Default: top 10 seen)
      * @return void
      */
-    public function infoCommand()
+    public function infoCommand($verbose = false)
     {
         $disallowedCookieParams = [];
         $disallowedQueryParams = [];
@@ -87,10 +88,19 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
             $this->outputLine(sprintf('<info>%s: %s</info>', $entry['cacheInfo'], $entry['count']) . (!in_array($entry['cacheInfo'], $this->fullPageCacheSettings['cacheInfos']) ? ' (currently disabled)' : ''));
         }
         $this->outputLine();
+
+        if (!$verbose)
+            $disallowedCookieParams = array_slice($disallowedCookieParams, 0, 10);
         $this->output->outputTable($disallowedCookieParams, ['Disallowed cookie names', 'Count']);
         $this->outputLine();
+
+        if (!$verbose)
+            $disallowedQueryParams = array_slice($disallowedQueryParams, 0, 10);
         $this->output->outputTable($disallowedQueryParams, ['Disallowed query strings', 'Count']);
         $this->outputLine();
+
+        if (!$verbose)
+            $this->outputLine('INFO: By default, you will see the top 10 cookies and query strings found. Use "./flow cachemonitor:info --verbose" to see all entries.');
     }
 
     /**

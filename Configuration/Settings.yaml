@@ -19,6 +19,7 @@ Tms:
       # Flownative.FullPageCache uses a cookies & query string whitelist approach to decide if a response is fully cachable.
       # Over time you most likely need to adjust the FullPageCache configuration as requests with unknown cookies and/or
       # query strings hit your site. These logs help you to keep track of new cookie and/or query strings.
+      # Run './flow cachemonitor:info' to see the results
       disallowedCookieParams: true
       disallowedQueryParams: true
 
