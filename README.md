@@ -20,24 +20,34 @@ composer require tms/cachemonitor dev-main
 
 ## Usage
 
-The package currently only supports [Flowpack.FullPageCache](https://github.com/Flowpack/Flowpack.FullPageCache) activities. Have a look at the default settings:
+### Flow commands
+Run `./flow cachemonitor` to see a full list of available Flow commands.
+
+### Settings
+The package starts logging without any further configuration. Please see the default configuration in case you need to customize something.
 
 ```yaml
 Tms:
   CacheMonitor:
-    fullPageCacheLogger:
-      skip: true
-      miss: true
+    # Settings for the cache flush logging
+    logCacheFlush:
+      cacheIdentifiers:
+        - # Optional "name" key is used as table header in the CLI command output
+          identifier: 'Neos_Fusion_Content'
+          name: 'Content Cache'
 
-      # WARNING: A benefit of using Flowpack.FullPageCache is that there are zero SQL queries involved for cache hits.
-      # By logging also cache hits you may experience performance issues
-      hit: false
+    # Settings for logging Flowpack.FullPageCache events
+    logFullPageCache:
+      # Which Flowpack.FullPageCache cache info states you'd like to log?
+      # One benefit of using Flowpack.FullPageCache is that there are zero SQL queries involved for cache hits.
+      # Therefore we add 'HIT' logging only in development context by default.
+      cacheInfos: ['SKIP', 'MISS']
 
       # Flownative.FullPageCache uses a cookies & query string whitelist approach to decide if a response is fully cachable.
       # Over time you most likely need to adjust the FullPageCache configuration as requests with unknown cookies and/or
       # query strings hit your site. These logs help you to keep track of new cookie and/or query strings.
-      logDisallowedCookieParams: true
-      logDisallowedQueryParams: true
+      disallowedCookieParams: true
+      disallowedQueryParams: true
 ```
 
 ## Acknowledgments

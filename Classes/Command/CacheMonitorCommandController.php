@@ -125,7 +125,7 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
     }
 
     /**
-     * Breakdown of cache info and uris
+     * Breakdown of fullpage cache infos and uris
      *
      * @return void
      */
