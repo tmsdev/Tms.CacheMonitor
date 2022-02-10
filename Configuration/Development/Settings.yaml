@@ -1,0 +1,4 @@
+Tms:
+  CacheMonitor:
+    logFullPageCache:
+      cacheInfos: ['SKIP', 'MISS', 'HIT']

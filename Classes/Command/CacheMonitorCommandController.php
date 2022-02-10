@@ -8,9 +8,9 @@ namespace Tms\CacheMonitor\Command;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Cache\CacheManager;
 use Tms\CacheMonitor\Domain\Model\ContentCacheFlushEvent;
-use Tms\CacheMonitor\Domain\Model\FullpagecacheActivity;
+use Tms\CacheMonitor\Domain\Model\FullPageCacheEvent;
 use Tms\CacheMonitor\Domain\Repository\ContentCacheFlushEventRepository;
-use Tms\CacheMonitor\Domain\Repository\FullpagecacheActivityRepository;
+use Tms\CacheMonitor\Domain\Repository\FullPageCacheEventRepository;
 
 /**
  * @Flow\Scope("singleton")
@@ -19,21 +19,21 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
 {
     /**
      * @var array
-     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="logContentCacheFlush")
+     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="logCacheFlush")
      */
-    protected $contentCacheFlushSettings;
+    protected $cacheFlushSettings;
 
     /**
      * @var array
-     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="fullPageCacheLogger")
+     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="logFullPageCache")
      */
     protected $fullPageCacheSettings;
 
     /**
      * @Flow\Inject
-     * @var FullpagecacheActivityRepository
+     * @var FullPageCacheEventRepository
      */
-    protected $fullpagecacheActivityRepository;
+    protected $fullPageCacheEventRepository;
 
     /**
      * @Flow\Inject
@@ -57,15 +57,15 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
         $disallowedCookieParams = [];
         $disallowedQueryParams = [];
 
-        /** @var $activity FullpagecacheActivity */
-        foreach ($this->fullpagecacheActivityRepository->findAll() as $activity) {
-            foreach ($activity->getDisallowedCookieParams() as $item) {
+        /** @var $event FullPageCacheEvent */
+        foreach ($this->fullPageCacheEventRepository->findAll() as $event) {
+            foreach ($event->getDisallowedCookieParams() as $item) {
                 if (isset($disallowedCookieParams[$item]))
                     $disallowedCookieParams[$item]++;
                 else
                     $disallowedCookieParams[$item] = 1;
             }
-            foreach ($activity->getDisallowedQueryParams() as $item) {
+            foreach ($event->getDisallowedQueryParams() as $item) {
                 if (isset($disallowedQueryParams[$item]))
                     $disallowedQueryParams[$item]++;
                 else
@@ -83,8 +83,8 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
 
         // Output results
         $this->outputLine();
-        foreach ($this->fullpagecacheActivityRepository->groupByCacheInfo() as $entry) {
-            $this->outputLine(sprintf('<info>%s: %s</info>', $entry['cacheInfo'], $entry['count']) . (!$this->fullPageCacheSettings[strtolower($entry['cacheInfo'])] ? ' (currently disabled)' : ''));
+        foreach ($this->fullPageCacheEventRepository->groupByCacheInfo() as $entry) {
+            $this->outputLine(sprintf('<info>%s: %s</info>', $entry['cacheInfo'], $entry['count']) . (!in_array($entry['cacheInfo'], $this->fullPageCacheSettings['cacheInfos']) ? ' (currently disabled)' : ''));
         }
         $this->outputLine();
         $this->output->outputTable($disallowedCookieParams, ['Disallowed cookie names', 'Count']);
@@ -104,12 +104,12 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
         $urisCookieParams = [];
         $urisQueryParams = [];
 
-        /** @var $activity FullpagecacheActivity */
-        foreach ($this->fullpagecacheActivityRepository->findAll() as $activity) {
-            if (in_array($searchTerm, $activity->getDisallowedCookieParams()))
-                $urisCookieParams[] = $activity->getUri();
-            if (in_array($searchTerm, $activity->getDisallowedQueryParams()))
-                $urisQueryParams[] = $activity->getUri();
+        /** @var $event FullPageCacheEvent */
+        foreach ($this->fullPageCacheEventRepository->findAll() as $event) {
+            if (in_array($searchTerm, $event->getDisallowedCookieParams()))
+                $urisCookieParams[] = $event->getUri();
+            if (in_array($searchTerm, $event->getDisallowedQueryParams()))
+                $urisQueryParams[] = $event->getUri();
         }
 
         $this->outputLine();
@@ -131,11 +131,11 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
      */
     public function urisCommand()
     {
-        $cacheInfos = $this->fullpagecacheActivityRepository->groupByCacheInfo();
+        $cacheInfos = $this->fullPageCacheEventRepository->groupByCacheInfo();
         $cacheInfos = array_map(function ($i) { return sprintf('%s (%s)', $i['cacheInfo'], $i['count']); }, $cacheInfos);
 
         $cacheInfo = $this->output->select('<question>Filter URIs by cache info:</question>', $cacheInfos);
-        $uris = $this->fullpagecacheActivityRepository->groupByUri(explode(' ', $cacheInfo)[0]);
+        $uris = $this->fullPageCacheEventRepository->groupByUri(explode(' ', $cacheInfo)[0]);
 
         $uris = array_map(function ($i) {
             $maximumChars = 120;
@@ -148,18 +148,6 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
             ];
         }, $uris);
         $this->output->outputTable($uris, ['URI', 'Count']);
-    }
-
-    /**
-     * Clear log entries
-     *
-     * @return void
-     */
-    public function clearCommand()
-    {
-        $count = $this->fullpagecacheActivityRepository->countAll();
-        $this->fullpagecacheActivityRepository->removeAll();
-        $this->outputLine(sprintf('<info>Removed %s cache monitor entries.</info>', $count));
     }
 
     /**
@@ -182,6 +170,11 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
             );
         }, $flushEvents->toArray());
 
+        if (!$flushEventChoices) {
+            $this->outputLine('<info>No cache flush event found.</info>');
+            exit;
+        }
+
         $flushEventChoice = $this->output->select('<question>Select a cache flush event:</question>', $flushEventChoices);
         preg_match('#\[(.*?)\]#', $flushEventChoice, $match);
         $flushEventIdentifier = $match[1];
@@ -193,7 +186,7 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
         foreach($flushEvent->getTagsToFlush() as $tag => $_) {
             $rows[$tag] = [$tag];
             $totalAffectedEntries = 0;
-            foreach($this->contentCacheFlushSettings['cacheIdentifiers'] as $cacheIdentifier) {
+            foreach($this->cacheFlushSettings['cacheIdentifiers'] as $cacheIdentifier) {
                 $affectedEntries = ($flushEvent->getAffectedEntries()[$tag][$cacheIdentifier['identifier'] ?? $cacheIdentifier]) ?? 0;
                 $totalAffectedEntries += $affectedEntries;
                 if ($affectedEntries > 0)
@@ -207,7 +200,7 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
         }
         ksort($rows);
         $headers = ['Tag(s) to flush'];
-        foreach($this->contentCacheFlushSettings['cacheIdentifiers'] as $cacheIdentifier) {
+        foreach($this->cacheFlushSettings['cacheIdentifiers'] as $cacheIdentifier) {
             array_push($headers, ($cacheIdentifier['name'] ?? $cacheIdentifier['identifier'] ?? $cacheIdentifier));
         }
         $this->output->outputTable($rows, $headers);
@@ -216,5 +209,21 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
             $this->outputLine();
             $this->outputLine('INFO: The list is filtered by tags that actually flushed existing cache entries. Use "./flow cachemonitor:flushaudit --verbose" to see all tags.');
         }
+    }
+
+    /**
+     * Clear cache logs
+     *
+     * @return void
+     */
+    public function clearCommand()
+    {
+        $countContentCacheFlushEvents = $this->contentCacheFlushEventRepository->countAll();
+        $this->contentCacheFlushEventRepository->removeAll();
+        $this->outputLine(sprintf('<info>Removed %s content cache flush events.</info>', $countContentCacheFlushEvents));
+
+        $countFullPageCacheEvents = $this->fullPageCacheEventRepository->countAll();
+        $this->fullPageCacheEventRepository->removeAll();
+        $this->outputLine(sprintf('<info>Removed %s fullpage cache events.</info>', $countFullPageCacheEvents));
     }
 }

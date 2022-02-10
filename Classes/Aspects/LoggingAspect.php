@@ -9,24 +9,28 @@ use Neos\Utility\ObjectAccess;
 use Psr\Http\Message\RequestInterface;
 use Psr\Http\Message\ResponseInterface;
 use Tms\CacheMonitor\Domain\Model\ContentCacheFlushEvent;
-use Tms\CacheMonitor\Domain\Model\FullpagecacheActivity;
+use Tms\CacheMonitor\Domain\Model\FullPageCacheEvent;
 use Tms\CacheMonitor\Domain\Repository\ContentCacheFlushEventRepository;
-use Tms\CacheMonitor\Domain\Repository\FullpagecacheActivityRepository;
+use Tms\CacheMonitor\Domain\Repository\FullPageCacheEventRepository;
 
 /**
  * @Flow\Aspect
  */
 class LoggingAspect
 {
-    /**
-     * @var array
-     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="logContentCacheFlush")
-     */
-    protected $contentCacheFlushSettings;
+    public const FULLPAGECACHE_SKIP = 'SKIP';
+    public const FULLPAGECACHE_MISS = 'MISS';
+    public const FULLPAGECACHE_HIT = 'HIT';
 
     /**
      * @var array
-     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="fullPageCacheLogger")
+     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="logCacheFlush")
+     */
+    protected $cacheFlushSettings;
+
+    /**
+     * @var array
+     * @Flow\InjectConfiguration(package="Tms.CacheMonitor", path="logFullPageCache")
      */
     protected $fullPageCacheSettings;
 
@@ -56,9 +60,9 @@ class LoggingAspect
 
     /**
      * @Flow\Inject
-     * @var FullpagecacheActivityRepository
+     * @var FullPageCacheEventRepository
      */
-    protected $fullpagecacheActivityRepository;
+    protected $fullPageCacheEventRepository;
 
     /**
      * @Flow\Inject
@@ -73,12 +77,12 @@ class LoggingAspect
     protected $cacheManager;
 
     /**
-     * Log Flowpack.FullPageCache activities
+     * Log Flowpack.FullPageCache events
      *
      * @Flow\After("method(Flowpack\FullPageCache\Middleware\RequestCacheMiddleware->process())")
      * @param JoinPointInterface $joinPoint
      */
-    public function fullPageCacheLogger(JoinPointInterface $joinPoint): void
+    public function logFullPageCache(JoinPointInterface $joinPoint): void
     {
         if ($this->fullPageCacheSettings) {
             /** @var  $request RequestInterface */
@@ -95,13 +99,17 @@ class LoggingAspect
                 $fullPageCacheInfo = $response->getHeader('X-FullPageCache-Info')[0];
                 $requestedUri = $request->getUri();
 
-                $activity = new FullpagecacheActivity();
+                $event = new FullPageCacheEvent();
                 $disallowedCookieParams = [];
                 $disallowedQueryParams = [];
 
-                if ($this->fullPageCacheSettings['skip'] && $this->str_starts_with($fullPageCacheInfo, 'SKIP')) {
-                    $activity->setCacheInfo('SKIP');
-                    if ($this->fullPageCacheSettings['logDisallowedCookieParams'] === true) {
+                // Handle cache info: SKIP
+                if (
+                    in_array(self::FULLPAGECACHE_SKIP, $this->fullPageCacheSettings['cacheInfos']) &&
+                    $this->str_starts_with($fullPageCacheInfo, self::FULLPAGECACHE_SKIP)
+                ) {
+                    $event->setCacheInfo(self::FULLPAGECACHE_SKIP);
+                    if ($this->fullPageCacheSettings['disallowedCookieParams'] === true) {
                         $requestCookieParams = $request->getCookieParams();
                         foreach ($requestCookieParams as $key => $value) {
                             if (!in_array($key, $this->ignoredCookieParams)) {
@@ -109,7 +117,7 @@ class LoggingAspect
                             }
                         }
                     }
-                    if ($this->fullPageCacheSettings['logDisallowedQueryParams'] === true) {
+                    if ($this->fullPageCacheSettings['disallowedQueryParams'] === true) {
                         $requestQueryParams = $request->getQueryParams();
                         $disallowedQueryParams = [];
                         foreach ($requestQueryParams as $key => $value) {
@@ -122,19 +130,30 @@ class LoggingAspect
                         }
                     }
                 }
-                if ($this->fullPageCacheSettings['miss'] && $this->str_starts_with($fullPageCacheInfo, 'MISS')) {
-                    $activity->setCacheInfo('MISS');
-                }
-                if ($this->fullPageCacheSettings['hit'] && $this->str_starts_with($fullPageCacheInfo, 'HIT')) {
-                    $activity->setCacheInfo('HIT');
+
+                // Handle cache info: MISS
+                if (
+                    in_array(self::FULLPAGECACHE_MISS, $this->fullPageCacheSettings['cacheInfos']) &&
+                    $this->str_starts_with($fullPageCacheInfo, self::FULLPAGECACHE_MISS)
+                ) {
+                    $event->setCacheInfo(self::FULLPAGECACHE_MISS);
                 }
 
-                if ($activity->getCacheInfo() !== null) {
-                    $activity->setUri($requestedUri);
-                    $activity->setDisallowedCookieParams($disallowedCookieParams);
-                    $activity->setDisallowedQueryParams($disallowedQueryParams);
+                // Handle cache info: HIT
+                if (
+                    in_array(self::FULLPAGECACHE_HIT, $this->fullPageCacheSettings['cacheInfos']) &&
+                    $this->str_starts_with($fullPageCacheInfo, self::FULLPAGECACHE_HIT)
+                ) {
+                    $event->setCacheInfo(self::FULLPAGECACHE_HIT);
+                }
 
-                    $this->fullpagecacheActivityRepository->add($activity);
+                // Persist results
+                if ($event->getCacheInfo() !== null) {
+                    $event->setUri($requestedUri);
+                    $event->setDisallowedCookieParams($disallowedCookieParams);
+                    $event->setDisallowedQueryParams($disallowedQueryParams);
+
+                    $this->fullPageCacheEventRepository->add($event);
                     $this->persistenceManager->persistAll();
                 }
             }
@@ -159,9 +178,9 @@ class LoggingAspect
 
         // Get number of affected entries (by cache identifier) at the time of flushing the cache
         $affectedEntries = [];
-        if ($this->contentCacheFlushSettings['cacheIdentifiers']) {
+        if ($this->cacheFlushSettings['cacheIdentifiers']) {
             foreach($tagsToFlush as $tag => $_) {
-                foreach($this->contentCacheFlushSettings['cacheIdentifiers'] as $cacheIdentifier) {
+                foreach($this->cacheFlushSettings['cacheIdentifiers'] as $cacheIdentifier) {
                     $cache = $this->cacheManager->getCache($cacheIdentifier['identifier'] ?? $cacheIdentifier);
                     $entries = $cache->getByTag($this->sanitizeTag($tag));
                     $affectedEntries[$tag][$cacheIdentifier['identifier'] ?? $cacheIdentifier] = count($entries);

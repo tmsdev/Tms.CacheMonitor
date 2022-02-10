@@ -1,26 +1,26 @@
 Tms:
   CacheMonitor:
-    fullPageCacheLogger:
-      skip: true
-      miss: true
-
-      # The benefit of using Flowpack.FullPageCache is that there are zero SQL queries involved for cache hits.
-      # By logging also cache hits you may experience performance issues
-      hit: false
-
-      # Flownative.FullPageCache uses a cookies & query string whitelist approach to decide if a response is fully cachable.
-      # Over time you most likely need to adjust the FullPageCache configuration as requests with unknown cookies and/or
-      # query strings hit your site. These logs help you to keep track of new cookie and/or query strings.
-      logDisallowedCookieParams: true
-      logDisallowedQueryParams: true
-
-    # Disable Flownative.FullPageCache logging
-    #fullPageCacheLogger: false
-
-    logContentCacheFlush:
+    # Settings for the cache flush logging
+    logCacheFlush:
       cacheIdentifiers:
         - # Optional "name" key is used as table header in the CLI command output
           identifier: 'Neos_Fusion_Content'
           name: 'Content Cache'
         # TODO: Flowpack_FullPageCache_Entries cache flush can't be logged right now, the @Flow\Before advice in Flowpack.FullPageCache is called too early
         #- 'Flowpack_FullPageCache_Entries'
+
+    # Settings for logging Flowpack.FullPageCache events
+    logFullPageCache:
+      # Which Flowpack.FullPageCache cache info states you'd like to log?
+      # One benefit of using Flowpack.FullPageCache is that there are zero SQL queries involved for cache hits.
+      # Therefore we add 'HIT' logging only in development context by default.
+      cacheInfos: ['SKIP', 'MISS']
+
+      # Flownative.FullPageCache uses a cookies & query string whitelist approach to decide if a response is fully cachable.
+      # Over time you most likely need to adjust the FullPageCache configuration as requests with unknown cookies and/or
+      # query strings hit your site. These logs help you to keep track of new cookie and/or query strings.
+      disallowedCookieParams: true
+      disallowedQueryParams: true
+
+    # Disable Flowpack.FullPageCache logging by setting
+    #logFullPageCache: false

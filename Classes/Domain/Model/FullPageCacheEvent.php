@@ -11,7 +11,7 @@ use Doctrine\ORM\Mapping as ORM;
 /**
  * @Flow\Entity
  */
-class FullpagecacheActivity
+class FullPageCacheEvent
 {
     /**
      * @var \DateTime

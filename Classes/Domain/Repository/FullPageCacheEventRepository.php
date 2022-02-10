@@ -8,12 +8,12 @@ namespace Tms\CacheMonitor\Domain\Repository;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Persistence\Doctrine\Repository;
 use Neos\Flow\Persistence\QueryInterface;
-use Tms\CacheMonitor\Domain\Model\FullpagecacheActivity;
+use Tms\CacheMonitor\Domain\Model\FullPageCacheEvent;
 
 /**
  * @Flow\Scope("singleton")
  */
-class FullpagecacheActivityRepository extends Repository
+class FullPageCacheEventRepository extends Repository
 {
     /**
      * @var array
@@ -47,7 +47,7 @@ class FullpagecacheActivityRepository extends Repository
         $queryBuilder = $this->entityManager->createQueryBuilder();
         $queryBuilder
             ->select('e.uri AS uri, COUNT(e.cacheInfo) AS count')
-            ->from(FullpagecacheActivity::class, 'e')
+            ->from(FullPageCacheEvent::class, 'e')
             ->where('e.cacheInfo = :cacheInfo')
             ->setParameter('cacheInfo', $cacheInfo)
             ->orderBy('count', 'DESC')
