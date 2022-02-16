@@ -170,15 +170,26 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
     {
         $flushEvents = $this->contentCacheFlushEventRepository->findAll();
 
-        $flushEventChoices = array_map(function ($e) {
-            return sprintf(
-                '[%s] <comment>%s</comment> <info>(Tags: %s, Workspaces: %s)</info>',
-                $e->getIdentifier(),
-                $e->getDateCreated()->format('Y-m-d H:i:sP'),
-                count($e->getTagsToFlush()),
-                implode(', ', array_keys($e->getWorkspacesToFlush()))
+        $flushEventChoices = [];
+        foreach ($flushEvents->toArray() as $flushEvent) {
+
+            $countAffectedEntries = 0;
+            foreach ($flushEvent->getAffectedEntries() as $affectedEntry) {
+                $countAffectedEntries += array_sum($affectedEntry);
+            }
+
+            if (!$verbose && $countAffectedEntries === 0)
+                continue;
+
+            $flushEventChoices[] = sprintf(
+                '[%s] <comment>%s</comment> <question> %s </question> <info>(Tags: %s, Workspaces: %s)</info>',
+                $flushEvent->getIdentifier(),
+                $flushEvent->getDateCreated()->format('Y-m-d H:i:sP'),
+                $countAffectedEntries,
+                count($flushEvent->getTagsToFlush()),
+                implode(', ', array_keys($flushEvent->getWorkspacesToFlush()))
             );
-        }, $flushEvents->toArray());
+        }
 
         if (!$flushEventChoices) {
             $this->outputLine('<info>No cache flush event found.</info>');
