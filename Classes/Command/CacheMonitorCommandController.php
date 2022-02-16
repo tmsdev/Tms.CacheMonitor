@@ -5,8 +5,17 @@ namespace Tms\CacheMonitor\Command;
  * This file is part of the Tms.CacheMonitor package.
  */
 
+use Neos\ContentRepository\Domain\Model\NodeData;
+use Neos\ContentRepository\Domain\Model\NodeInterface;
+use Neos\ContentRepository\Domain\Model\Workspace;
+use Neos\ContentRepository\Domain\Repository\NodeDataRepository;
+use Neos\ContentRepository\Domain\Repository\WorkspaceRepository;
 use Neos\Flow\Annotations as Flow;
 use Neos\Flow\Cache\CacheManager;
+use Neos\Fusion\Core\Cache\ContentCache;
+use Neos\Neos\Domain\Service\ContentContext;
+use Neos\Neos\Domain\Service\ContentContextFactory;
+use Ramsey\Uuid\Uuid;
 use Tms\CacheMonitor\Domain\Model\ContentCacheFlushEvent;
 use Tms\CacheMonitor\Domain\Model\FullPageCacheEvent;
 use Tms\CacheMonitor\Domain\Repository\ContentCacheFlushEventRepository;
@@ -46,6 +55,24 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
      * @var CacheManager
      */
     protected $cacheManager;
+
+    /**
+     * @Flow\Inject
+     * @var NodeDataRepository
+     */
+    protected $nodeDataRepository;
+
+    /**
+     * @Flow\Inject
+     * @var WorkspaceRepository
+     */
+    protected $workspaceRepository;
+
+    /**
+     * @Flow\Inject
+     * @var ContentContextFactory
+     */
+    protected $contentContextFactory;
 
     /**
      * Summarize cache monitor logs
@@ -246,5 +273,130 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
         $countFullPageCacheEvents = $this->fullPageCacheEventRepository->countAll();
         $this->fullPageCacheEventRepository->removeAll();
         $this->outputLine(sprintf('<info>Removed %s fullpage cache events.</info>', $countFullPageCacheEvents));
+    }
+
+    /**
+     * A cache tag can consist of up to 3 parts, which this flow command will break down for you
+     *
+     * 1. The prefix: [Everything, Node_, NodeType_, NodeDynamicTag_, DescendantOf_, AssetDynamicTag_]
+     * 2. The workspace tag: an MD5 hash of the workspace name wrapped in %...%
+     * 3. The nodetype name OR node identifier
+     *
+     * @param string $cacheTag The cache tag you are interested in (e.g. DescendantOf_%d0dbe915091d400bd8ee7f27f0791303%_a0051fcd-4334-4c6b-ae9d-1faa2d406eaf)
+     * @return void
+     */
+    public function decodeCacheTagCommand($cacheTag)
+    {
+        $cacheTagParts = explode('_', $cacheTag);
+
+        $cacheTagPrefix = $cacheTagParts[0];
+        $workspaceName = null;
+        $nodeTypeName = null;
+        $nodeIdentifier = null;
+
+        $validCacheTagPrefixes = [
+            'Everything',
+            'Node',
+            'NodeType',
+            'NodeDynamicTag',
+            'DescendantOf',
+            'AssetDynamicTag'
+        ];
+
+        if (!in_array($cacheTagPrefix, $validCacheTagPrefixes)) {
+            $this->outputLine(sprintf('<error>"%s" is not a valid cache tag prefix.</error>', $cacheTagPrefix));
+            return;
+        }
+
+        if ($cacheTagParts[0] === ContentCache::TAG_EVERYTHING) {
+            $this->outputLine(
+                sprintf(
+                    '<comment>Cache entries tagged with "%s" will get flushed on every registered node change, independent of the content context. This can happen accidentally if you forgot to add entry tags.</comment>'
+                    , ContentCache::TAG_EVERYTHING
+                ));
+            return;
+        }
+
+        // Decode cache tag without workspace tag (context node)
+        if (count($cacheTagParts) === 2) {
+            if(Uuid::isValid($cacheTagParts[1])) {
+                $nodeIdentifier = $cacheTagParts[1];
+                $nodeInfo = $this->getNodeInfo($cacheTagParts[1]);
+            } else {
+                $nodeTypeName = $cacheTagParts[1];
+            }
+        }
+
+        // Decode cache tag that includes a workspace tag
+        if (count($cacheTagParts) === 3) {
+            $workspaceName = $this->getWorkspaceNameFromWorkspaceTag($cacheTagParts[1]);
+            if(Uuid::isValid($cacheTagParts[2])) {
+                $nodeIdentifier = $cacheTagParts[2];
+                $nodeInfo = $this->getNodeInfo($cacheTagParts[2], $workspaceName);
+            } else {
+                $nodeTypeName = $cacheTagParts[2];
+            }
+        }
+
+        $this->outputLine(sprintf('1. Prefix <question>%s</question>', $cacheTagPrefix));
+        $this->outputLine(sprintf('2. Workspace <question>%s</question>', $workspaceName ?? '(not set)'));
+        if ($nodeTypeName)
+            $this->outputLine(sprintf('3. Nodetype name <question>%s</question>', $nodeTypeName));
+        if ($nodeIdentifier) {
+            $this->outputLine(sprintf('3. Node identifier <question>%s</question>, search for nodes related to this identifier (and workspace)...', $nodeIdentifier));
+            if (empty($nodeInfo))
+                $this->outputLine(sprintf('<comment>No nodes found for identifier "%s" in "%s" workspace(s).</comment>', $nodeIdentifier, $workspaceName ?? '(all)'));
+            else
+                $this->output->outputTable($nodeInfo, array_keys($nodeInfo[0]));
+        }
+    }
+
+    /**
+     * @param string $workspaceTag
+     * @return string|null
+     */
+    protected function getWorkspaceNameFromWorkspaceTag($workspaceTag)
+    {
+        /** @var Workspace $workspace */
+        foreach ($this->workspaceRepository->findAll() as $workspace) {
+            if (trim($workspaceTag, '%') === md5($workspace->getName()))
+                return $workspace->getName();
+        }
+        return null;
+    }
+
+    /**
+     * @param string $identifier
+     * @param string $workspaceName
+     * @return array
+     */
+    protected function getNodeInfo($identifier, $workspaceName = null)
+    {
+        $result = [];
+        $query = $this->nodeDataRepository->createQuery();
+        $query->matching($query->equals('identifier', $identifier));
+
+        /** @var NodeData $nodeData */
+        foreach ($query->execute() as $nodeData) {
+
+            /** @var ContentContext $contentContext */
+            $contentContext = $this->contentContextFactory->create([
+                'workspaceName' => $nodeData->getWorkspace()->getName(),
+                'dimensions' => $nodeData->getDimensions()
+            ]);
+
+            $node = $contentContext->getNode($nodeData->getPath());
+            if ($node instanceof NodeInterface) {
+                if ($workspaceName && $nodeData->getWorkspace()->getName() !== $workspaceName)
+                    continue;
+
+                $result[] = [
+                    'nodeTypeName' => $nodeData->getNodeType()->getName(),
+                    'contextPath' => $nodeData->getContextPath(),
+                    'label' => $node->getLabel()
+                ];
+            }
+        }
+        return $result;
     }
 }
