@@ -190,15 +190,25 @@ class CacheMonitorCommandController extends \Neos\Flow\Cli\CommandController
     /**
      * A content cache flush audit
      *
-     * @param boolean $verbose Show tags with no affected entries as well
+     * @param boolean $verbose Show flush events and cache tags with no affected entries as well
+     * @param string $cacheTag Filter cache flushes by events that include the given cache tag
+     * @param integer $threshold Affected entries threshold (use in combination with the "--cache-tag" filter)
      * @return void
      */
-    public function flushAuditCommand($verbose = false)
+    public function flushAuditCommand($verbose = false, $cacheTag = '', $threshold = 0)
     {
         $flushEvents = $this->contentCacheFlushEventRepository->findAll();
 
         $flushEventChoices = [];
         foreach ($flushEvents->toArray() as $flushEvent) {
+
+            if ($cacheTag &&
+                (
+                    !isset($flushEvent->getAffectedEntries()[$cacheTag]) ||
+                    array_sum($flushEvent->getAffectedEntries()[$cacheTag]) <= $threshold
+                )
+            )
+                continue;
 
             $countAffectedEntries = 0;
             foreach ($flushEvent->getAffectedEntries() as $affectedEntry) {
